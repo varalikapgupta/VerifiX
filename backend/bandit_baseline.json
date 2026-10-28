@@ -1,0 +1,12 @@
+[
+  {
+    "rule": "B608",
+    "type": "hardcoded_sql_expressions",
+    "line": 170,
+    "evidence": "Possible SQL injection vector through string-based query construction.",
+    "severity": "medium",
+    "source": "bandit",
+    "confidence": "low",
+    "filename": "C:\\Users\\varal\\Desktop\\dualbyte-t2-03\\backend\\vulnerable_app.py"
+  }
+]
