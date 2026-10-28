@@ -1,0 +1,160 @@
+{
+  "version": "1.0.0",
+  "description": "VerifiX 22-case static security evaluation benchmark dataset",
+  "cases": [
+    {
+      "id": "CASE-PY001-01",
+      "rule": "PY001",
+      "label": "vulnerable",
+      "title": "Dynamic formula evaluation using eval() with user input",
+      "code": "def calculate_expression(user_expr: str):\n    return eval(user_expr)\n"
+    },
+    {
+      "id": "CASE-PY001-02",
+      "rule": "PY001",
+      "label": "vulnerable",
+      "title": "Dynamic code execution using exec() with unvalidated script",
+      "code": "def run_user_plugin(script_code: str, context: dict):\n    exec(script_code, context)\n"
+    },
+    {
+      "id": "CASE-PY001-03",
+      "rule": "PY001",
+      "label": "safe",
+      "title": "Static math constant evaluation using literal eval()",
+      "code": "def get_default_multiplier():\n    return eval(\"10 * 5\")\n"
+    },
+    {
+      "id": "CASE-PY001-04",
+      "rule": "PY001",
+      "label": "safe",
+      "title": "Static configuration bootstrap with literal exec()",
+      "code": "def initialize_defaults():\n    exec(\"DEBUG = False\\nVERSION = '1.0.0'\")\n"
+    },
+    {
+      "id": "CASE-PY002-01",
+      "rule": "PY002",
+      "label": "vulnerable",
+      "title": "Path traversal via dynamic filename in os.path.join",
+      "code": "import os\n\ndef get_user_file(base_dir: str, user_filename: str) -> str:\n    return os.path.join(base_dir, user_filename)\n"
+    },
+    {
+      "id": "CASE-PY002-02",
+      "rule": "PY002",
+      "label": "vulnerable",
+      "title": "Path traversal via dynamic f-string in os.path.join",
+      "code": "import os\n\ndef export_report(folder: str, report_id: str) -> str:\n    return os.path.join(folder, f\"report_{report_id}.csv\")\n"
+    },
+    {
+      "id": "CASE-PY002-03",
+      "rule": "PY002",
+      "label": "safe",
+      "title": "Safe static path construction with literal components",
+      "code": "import os\n\ndef get_asset_path() -> str:\n    return os.path.join(\"/var/www\", \"assets\", \"images\", \"logo.png\")\n"
+    },
+    {
+      "id": "CASE-PY002-04",
+      "rule": "PY002",
+      "label": "safe",
+      "title": "Safe single-argument base directory resolution",
+      "code": "import os\n\ndef resolve_root(app_root: str) -> str:\n    return os.path.join(app_root)\n"
+    },
+    {
+      "id": "CASE-PY003-01",
+      "rule": "PY003",
+      "label": "vulnerable",
+      "title": "SQL injection via f-string formatting in cursor.execute",
+      "code": "def search_accounts(cursor, account_id: str):\n    cursor.execute(f\"SELECT id, balance FROM accounts WHERE id = {account_id}\")\n    return cursor.fetchall()\n"
+    },
+    {
+      "id": "CASE-PY003-02",
+      "rule": "PY003",
+      "label": "vulnerable",
+      "title": "SQL injection via percent formatting in cursor.execute",
+      "code": "def lookup_user_by_email(cursor, email: str):\n    cursor.execute(\"SELECT * FROM users WHERE email = '%s'\" % email)\n    return cursor.fetchone()\n"
+    },
+    {
+      "id": "CASE-PY003-03",
+      "rule": "PY003",
+      "label": "safe",
+      "title": "Safe parameterized SQL query in cursor.execute",
+      "code": "def get_profile(cursor, user_id: int):\n    cursor.execute(\"SELECT id, name, email FROM profiles WHERE id = ?\", (user_id,))\n    return cursor.fetchone()\n"
+    },
+    {
+      "id": "CASE-PY003-04",
+      "rule": "PY003",
+      "label": "safe",
+      "title": "Safe static literal SQL query in cursor.execute",
+      "code": "def get_database_status(cursor):\n    cursor.execute(\"SELECT count(*) FROM system_health\")\n    return cursor.fetchone()\n"
+    },
+    {
+      "id": "CASE-PY004-01",
+      "rule": "PY004",
+      "label": "vulnerable",
+      "title": "Command injection via variable command in subprocess.run",
+      "code": "import subprocess\n\ndef execute_user_script(command_line: str):\n    subprocess.run(command_line, shell=True)\n"
+    },
+    {
+      "id": "CASE-PY004-02",
+      "rule": "PY004",
+      "label": "vulnerable",
+      "title": "Command injection via dynamic string in os.system",
+      "code": "import os\n\ndef clean_temp_directory(user_dir: str):\n    os.system(f\"rm -rf {user_dir}\")\n"
+    },
+    {
+      "id": "CASE-PY004-03",
+      "rule": "PY004",
+      "label": "safe",
+      "title": "Safe subprocess command using fixed literal argument list",
+      "code": "import subprocess\n\ndef check_git_version():\n    subprocess.run([\"git\", \"--version\"], check=True)\n"
+    },
+    {
+      "id": "CASE-PY004-04",
+      "rule": "PY004",
+      "label": "safe",
+      "title": "Safe os.system call with static string literal",
+      "code": "import os\n\ndef display_banner():\n    os.system(\"echo '=== VerifiX Service Initialized ==='\")\n"
+    },
+    {
+      "id": "CASE-PY005-01",
+      "rule": "PY005",
+      "label": "vulnerable",
+      "title": "Hardcoded API secret in variable assignment",
+      "code": "api_key = \"vx_live_secret_key_8899aabbccddeeff\"\n"
+    },
+    {
+      "id": "CASE-PY005-02",
+      "rule": "PY005",
+      "label": "vulnerable",
+      "title": "Hardcoded database password in annotated assignment",
+      "code": "db_password: str = \"SuperSecretDbPassword2026!\"\n"
+    },
+    {
+      "id": "CASE-PY005-03",
+      "rule": "PY005",
+      "label": "safe",
+      "title": "Safe secret retrieval via environment variable",
+      "code": "import os\n\napi_key = os.environ.get(\"VERIFIX_API_KEY\", \"\")\n"
+    },
+    {
+      "id": "CASE-AUTH001-01",
+      "rule": "AUTH001",
+      "label": "vulnerable",
+      "title": "BOLA/IDOR route accessing DOCUMENTS without ownership check",
+      "code": "from flask import Flask, jsonify\napp = Flask(__name__)\nDOCUMENTS = {1: {\"title\": \"Secret\", \"owner\": \"alice\"}}\n\n@app.route(\"/documents/<int:doc_id>\")\ndef read_doc(doc_id):\n    return jsonify(DOCUMENTS.get(doc_id, {}))\n"
+    },
+    {
+      "id": "CASE-AUTH001-02",
+      "rule": "AUTH001",
+      "label": "safe",
+      "title": "Route accessing DOCUMENTS with explicit ownership verification",
+      "code": "from flask import Flask, jsonify, abort\napp = Flask(__name__)\nDOCUMENTS = {1: {\"title\": \"Secret\", \"owner\": \"alice\"}}\n\n@app.route(\"/documents/<int:doc_id>\")\ndef read_doc(doc_id):\n    doc = DOCUMENTS.get(doc_id)\n    owner = doc.get(\"owner\")\n    current_user = \"alice\"\n    if owner != current_user:\n        abort(403)\n    return jsonify(doc)\n"
+    },
+    {
+      "id": "CASE-AUTH001-03",
+      "rule": "AUTH001",
+      "label": "safe",
+      "title": "Public endpoint not accessing DOCUMENTS collection",
+      "code": "from flask import Flask, jsonify\napp = Flask(__name__)\n\n@app.route(\"/api/health\")\ndef health_status():\n    return jsonify({\"status\": \"healthy\", \"service\": \"verifix\"})\n"
+    }
+  ]
+}

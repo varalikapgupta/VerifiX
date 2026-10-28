@@ -1,0 +1,512 @@
+{
+  "metadata": {
+    "dataset_file": "evaluation_dataset.json",
+    "dataset_version": "1.0.0",
+    "timestamp": "2026-10-28T18:09:58.662101+00:00",
+    "total_cases": 22,
+    "expected_rules": [
+      "PY001",
+      "PY002",
+      "PY003",
+      "PY004",
+      "PY005",
+      "AUTH001"
+    ]
+  },
+  "overall_metrics": {
+    "total_cases": 22,
+    "true_positives": 11,
+    "false_positives": 0,
+    "true_negatives": 11,
+    "false_negatives": 0,
+    "errors": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1_score": 1.0,
+    "specificity": 1.0,
+    "false_positive_rate": 0.0
+  },
+  "per_rule_metrics": {
+    "PY001": {
+      "total_cases": 4,
+      "true_positives": 2,
+      "false_positives": 0,
+      "true_negatives": 2,
+      "false_negatives": 0,
+      "errors": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "specificity": 1.0,
+      "false_positive_rate": 0.0
+    },
+    "PY002": {
+      "total_cases": 4,
+      "true_positives": 2,
+      "false_positives": 0,
+      "true_negatives": 2,
+      "false_negatives": 0,
+      "errors": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "specificity": 1.0,
+      "false_positive_rate": 0.0
+    },
+    "PY003": {
+      "total_cases": 4,
+      "true_positives": 2,
+      "false_positives": 0,
+      "true_negatives": 2,
+      "false_negatives": 0,
+      "errors": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "specificity": 1.0,
+      "false_positive_rate": 0.0
+    },
+    "PY004": {
+      "total_cases": 4,
+      "true_positives": 2,
+      "false_positives": 0,
+      "true_negatives": 2,
+      "false_negatives": 0,
+      "errors": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "specificity": 1.0,
+      "false_positive_rate": 0.0
+    },
+    "PY005": {
+      "total_cases": 3,
+      "true_positives": 2,
+      "false_positives": 0,
+      "true_negatives": 1,
+      "false_negatives": 0,
+      "errors": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "specificity": 1.0,
+      "false_positive_rate": 0.0
+    },
+    "AUTH001": {
+      "total_cases": 3,
+      "true_positives": 1,
+      "false_positives": 0,
+      "true_negatives": 2,
+      "false_negatives": 0,
+      "errors": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "specificity": 1.0,
+      "false_positive_rate": 0.0
+    }
+  },
+  "finding_level_counts": {
+    "total_findings_generated": 11,
+    "expected_rule_findings": 11,
+    "unrelated_rule_findings": 0
+  },
+  "cases": [
+    {
+      "id": "CASE-PY001-01",
+      "rule": "PY001",
+      "label": "vulnerable",
+      "title": "Dynamic formula evaluation using eval() with user input",
+      "outcome": "TP",
+      "passed": true,
+      "detected": true,
+      "detected_rules": [
+        "PY001"
+      ],
+      "actual_findings": [
+        {
+          "rule": "PY001",
+          "type": "Dynamic code execution",
+          "line": 2,
+          "evidence": "eval() called with a non-literal argument",
+          "severity": "high"
+        }
+      ],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY001-02",
+      "rule": "PY001",
+      "label": "vulnerable",
+      "title": "Dynamic code execution using exec() with unvalidated script",
+      "outcome": "TP",
+      "passed": true,
+      "detected": true,
+      "detected_rules": [
+        "PY001"
+      ],
+      "actual_findings": [
+        {
+          "rule": "PY001",
+          "type": "Dynamic code execution",
+          "line": 2,
+          "evidence": "exec() called with a non-literal argument",
+          "severity": "high"
+        }
+      ],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY001-03",
+      "rule": "PY001",
+      "label": "safe",
+      "title": "Static math constant evaluation using literal eval()",
+      "outcome": "TN",
+      "passed": true,
+      "detected": false,
+      "detected_rules": [],
+      "actual_findings": [],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY001-04",
+      "rule": "PY001",
+      "label": "safe",
+      "title": "Static configuration bootstrap with literal exec()",
+      "outcome": "TN",
+      "passed": true,
+      "detected": false,
+      "detected_rules": [],
+      "actual_findings": [],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY002-01",
+      "rule": "PY002",
+      "label": "vulnerable",
+      "title": "Path traversal via dynamic filename in os.path.join",
+      "outcome": "TP",
+      "passed": true,
+      "detected": true,
+      "detected_rules": [
+        "PY002"
+      ],
+      "actual_findings": [
+        {
+          "rule": "PY002",
+          "type": "Unsafe dynamic path component",
+          "line": 4,
+          "evidence": "os.path.join() receives a non-literal path component",
+          "severity": "high"
+        }
+      ],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY002-02",
+      "rule": "PY002",
+      "label": "vulnerable",
+      "title": "Path traversal via dynamic f-string in os.path.join",
+      "outcome": "TP",
+      "passed": true,
+      "detected": true,
+      "detected_rules": [
+        "PY002"
+      ],
+      "actual_findings": [
+        {
+          "rule": "PY002",
+          "type": "Unsafe dynamic path component",
+          "line": 4,
+          "evidence": "os.path.join() receives a non-literal path component",
+          "severity": "high"
+        }
+      ],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY002-03",
+      "rule": "PY002",
+      "label": "safe",
+      "title": "Safe static path construction with literal components",
+      "outcome": "TN",
+      "passed": true,
+      "detected": false,
+      "detected_rules": [],
+      "actual_findings": [],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY002-04",
+      "rule": "PY002",
+      "label": "safe",
+      "title": "Safe single-argument base directory resolution",
+      "outcome": "TN",
+      "passed": true,
+      "detected": false,
+      "detected_rules": [],
+      "actual_findings": [],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY003-01",
+      "rule": "PY003",
+      "label": "vulnerable",
+      "title": "SQL injection via f-string formatting in cursor.execute",
+      "outcome": "TP",
+      "passed": true,
+      "detected": true,
+      "detected_rules": [
+        "PY003"
+      ],
+      "actual_findings": [
+        {
+          "rule": "PY003",
+          "type": "SQL injection via dynamic formatting",
+          "line": 2,
+          "evidence": "cursor.execute() receives a dynamically-formatted SQL string",
+          "severity": "high"
+        }
+      ],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY003-02",
+      "rule": "PY003",
+      "label": "vulnerable",
+      "title": "SQL injection via percent formatting in cursor.execute",
+      "outcome": "TP",
+      "passed": true,
+      "detected": true,
+      "detected_rules": [
+        "PY003"
+      ],
+      "actual_findings": [
+        {
+          "rule": "PY003",
+          "type": "SQL injection via dynamic formatting",
+          "line": 2,
+          "evidence": "cursor.execute() receives a dynamically-formatted SQL string",
+          "severity": "high"
+        }
+      ],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY003-03",
+      "rule": "PY003",
+      "label": "safe",
+      "title": "Safe parameterized SQL query in cursor.execute",
+      "outcome": "TN",
+      "passed": true,
+      "detected": false,
+      "detected_rules": [],
+      "actual_findings": [],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY003-04",
+      "rule": "PY003",
+      "label": "safe",
+      "title": "Safe static literal SQL query in cursor.execute",
+      "outcome": "TN",
+      "passed": true,
+      "detected": false,
+      "detected_rules": [],
+      "actual_findings": [],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY004-01",
+      "rule": "PY004",
+      "label": "vulnerable",
+      "title": "Command injection via variable command in subprocess.run",
+      "outcome": "TP",
+      "passed": true,
+      "detected": true,
+      "detected_rules": [
+        "PY004"
+      ],
+      "actual_findings": [
+        {
+          "rule": "PY004",
+          "type": "Dynamic shell command",
+          "line": 4,
+          "evidence": "subprocess.run() receives a non-literal first argument (potential command injection)",
+          "severity": "high"
+        }
+      ],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY004-02",
+      "rule": "PY004",
+      "label": "vulnerable",
+      "title": "Command injection via dynamic string in os.system",
+      "outcome": "TP",
+      "passed": true,
+      "detected": true,
+      "detected_rules": [
+        "PY004"
+      ],
+      "actual_findings": [
+        {
+          "rule": "PY004",
+          "type": "Dynamic shell command",
+          "line": 4,
+          "evidence": "os.system() receives a non-literal first argument (potential command injection)",
+          "severity": "high"
+        }
+      ],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY004-03",
+      "rule": "PY004",
+      "label": "safe",
+      "title": "Safe subprocess command using fixed literal argument list",
+      "outcome": "TN",
+      "passed": true,
+      "detected": false,
+      "detected_rules": [],
+      "actual_findings": [],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY004-04",
+      "rule": "PY004",
+      "label": "safe",
+      "title": "Safe os.system call with static string literal",
+      "outcome": "TN",
+      "passed": true,
+      "detected": false,
+      "detected_rules": [],
+      "actual_findings": [],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY005-01",
+      "rule": "PY005",
+      "label": "vulnerable",
+      "title": "Hardcoded API secret in variable assignment",
+      "outcome": "TP",
+      "passed": true,
+      "detected": true,
+      "detected_rules": [
+        "PY005"
+      ],
+      "actual_findings": [
+        {
+          "rule": "PY005",
+          "type": "Hardcoded secret",
+          "line": 1,
+          "evidence": "'api_key' assigned a non-empty string literal (possible hardcoded credential)",
+          "severity": "high"
+        }
+      ],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY005-02",
+      "rule": "PY005",
+      "label": "vulnerable",
+      "title": "Hardcoded database password in annotated assignment",
+      "outcome": "TP",
+      "passed": true,
+      "detected": true,
+      "detected_rules": [
+        "PY005"
+      ],
+      "actual_findings": [
+        {
+          "rule": "PY005",
+          "type": "Hardcoded secret",
+          "line": 1,
+          "evidence": "'db_password' assigned a non-empty string literal (possible hardcoded credential)",
+          "severity": "high"
+        }
+      ],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-PY005-03",
+      "rule": "PY005",
+      "label": "safe",
+      "title": "Safe secret retrieval via environment variable",
+      "outcome": "TN",
+      "passed": true,
+      "detected": false,
+      "detected_rules": [],
+      "actual_findings": [],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-AUTH001-01",
+      "rule": "AUTH001",
+      "label": "vulnerable",
+      "title": "BOLA/IDOR route accessing DOCUMENTS without ownership check",
+      "outcome": "TP",
+      "passed": true,
+      "detected": true,
+      "detected_rules": [
+        "AUTH001"
+      ],
+      "actual_findings": [
+        {
+          "rule": "AUTH001",
+          "type": "Possible missing authorization check",
+          "line": 6,
+          "evidence": "Route accesses DOCUMENTS without an obvious ownership check",
+          "severity": "medium"
+        }
+      ],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-AUTH001-02",
+      "rule": "AUTH001",
+      "label": "safe",
+      "title": "Route accessing DOCUMENTS with explicit ownership verification",
+      "outcome": "TN",
+      "passed": true,
+      "detected": false,
+      "detected_rules": [],
+      "actual_findings": [],
+      "unrelated_findings": [],
+      "syntax_error": null
+    },
+    {
+      "id": "CASE-AUTH001-03",
+      "rule": "AUTH001",
+      "label": "safe",
+      "title": "Public endpoint not accessing DOCUMENTS collection",
+      "outcome": "TN",
+      "passed": true,
+      "detected": false,
+      "detected_rules": [],
+      "actual_findings": [],
+      "unrelated_findings": [],
+      "syntax_error": null
+    }
+  ]
+}
