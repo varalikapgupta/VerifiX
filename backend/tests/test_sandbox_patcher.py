@@ -192,6 +192,44 @@ class TestCleanupSandbox:
         assert cleanup_sandbox(None) is False
         assert cleanup_sandbox("") is False
 
+    def test_cleanup_rejects_arbitrary_caller_directory(self, tmp_path):
+        """Cleanup must reject arbitrary caller-supplied directories even if named with the prefix."""
+        fake_sandbox = tmp_path / "verifix_sandbox_caller_owned"
+        fake_sandbox.mkdir()
+        canary_file = fake_sandbox / "important.txt"
+        canary_file.write_text("critical data", encoding="utf-8")
+
+        cleaned = cleanup_sandbox(fake_sandbox)
+        assert cleaned is False, "cleanup_sandbox must refuse to delete unowned directory"
+        assert fake_sandbox.exists(), "Unowned directory must not be removed"
+        assert canary_file.exists(), "Canary file must remain intact"
+
+    def test_cleanup_rejects_unregistered_dir_in_temp_root(self):
+        """Even inside system temp, directories not created by create_sandbox_copy must be rejected."""
+        import tempfile
+        temp_root = Path(tempfile.gettempdir()).resolve()
+        unregistered_dir = temp_root / "verifix_sandbox_unregistered_test"
+        unregistered_dir.mkdir(exist_ok=True)
+        canary = unregistered_dir / "keep_me.txt"
+        canary.write_text("keep", encoding="utf-8")
+
+        try:
+            cleaned = cleanup_sandbox(unregistered_dir)
+            assert cleaned is False, "Unregistered directory in tempdir must not be deleted"
+            assert unregistered_dir.exists()
+        finally:
+            import shutil
+            shutil.rmtree(unregistered_dir, ignore_errors=True)
+
+    def test_cleanup_second_call_returns_false(self, tmp_path):
+        """Calling cleanup twice on the same sandbox dir returns True then False."""
+        dummy_file = tmp_path / "dummy.py"
+        dummy_file.write_text("x = 1\n", encoding="utf-8")
+        sandbox_dir, _, _ = create_sandbox_copy(dummy_file)
+
+        assert cleanup_sandbox(sandbox_dir) is True
+        assert cleanup_sandbox(sandbox_dir) is False
+
 
 # ===========================================================================
 # 6. Supported & Unsupported Patch Rules

@@ -165,10 +165,13 @@ def compute_sha256(data_or_path: str | bytes | Path) -> str:
     if isinstance(data_or_path, Path):
         hasher.update(data_or_path.read_bytes())
     elif isinstance(data_or_path, str):
-        path_candidate = Path(data_or_path)
-        if path_candidate.is_file():
-            hasher.update(path_candidate.read_bytes())
-        else:
+        try:
+            path_candidate = Path(data_or_path)
+            if path_candidate.is_file():
+                hasher.update(path_candidate.read_bytes())
+            else:
+                hasher.update(data_or_path.encode("utf-8"))
+        except (OSError, ValueError):
             hasher.update(data_or_path.encode("utf-8"))
     elif isinstance(data_or_path, bytes):
         hasher.update(data_or_path)
@@ -192,10 +195,13 @@ def validate_python_syntax(source_or_path: str | Path) -> tuple[bool, str | None
         if isinstance(source_or_path, Path):
             source = source_or_path.read_text(encoding="utf-8", errors="replace")
         elif isinstance(source_or_path, str):
-            path_candidate = Path(source_or_path)
-            if path_candidate.is_file():
-                source = path_candidate.read_text(encoding="utf-8", errors="replace")
-            else:
+            try:
+                path_candidate = Path(source_or_path)
+                if path_candidate.is_file():
+                    source = path_candidate.read_text(encoding="utf-8", errors="replace")
+                else:
+                    source = source_or_path
+            except (OSError, ValueError):
                 source = source_or_path
         else:
             return False, f"Expected str or Path, got {type(source_or_path).__name__}"
@@ -209,8 +215,12 @@ def validate_python_syntax(source_or_path: str | Path) -> tuple[bool, str | None
 
 
 # ---------------------------------------------------------------------------
-# Sandbox Management
+# Sandbox Management & Active Registry
 # ---------------------------------------------------------------------------
+
+# Tracks sandbox directories explicitly created and owned by this patcher session
+_ACTIVE_SANDBOX_DIRS: set[Path] = set()
+
 
 def create_sandbox_copy(target_path: str | Path) -> tuple[Path, Path, str]:
     """Create a temporary working copy of *target_path* in a fresh sandbox directory.
@@ -220,6 +230,7 @@ def create_sandbox_copy(target_path: str | Path) -> tuple[Path, Path, str]:
     - Original file is read strictly in read-only mode.
     - Computes original SHA-256 digest.
     - The original file is NEVER altered.
+    - Registers sandbox_dir in _ACTIVE_SANDBOX_DIRS for authorized cleanup.
 
     Returns:
         (sandbox_dir, working_copy_path, original_sha256)
@@ -228,6 +239,7 @@ def create_sandbox_copy(target_path: str | Path) -> tuple[Path, Path, str]:
     original_sha256 = compute_sha256(validated_path)
 
     sandbox_dir = Path(tempfile.mkdtemp(prefix="verifix_sandbox_")).resolve()
+    _ACTIVE_SANDBOX_DIRS.add(sandbox_dir)
     copy_path = sandbox_dir / validated_path.name
 
     shutil.copy2(validated_path, copy_path)
@@ -236,19 +248,46 @@ def create_sandbox_copy(target_path: str | Path) -> tuple[Path, Path, str]:
     post_copy_sha256 = compute_sha256(validated_path)
     if original_sha256 != post_copy_sha256:
         shutil.rmtree(sandbox_dir, ignore_errors=True)
+        _ACTIVE_SANDBOX_DIRS.discard(sandbox_dir)
         raise RuntimeError("Original file was modified during copy operation! Aborting.")
 
     return sandbox_dir, copy_path, original_sha256
 
 
 def cleanup_sandbox(sandbox_dir: str | Path | None) -> bool:
-    """Safely remove a sandbox temporary directory and all its contents."""
+    """Safely remove a sandbox temporary directory and all its contents.
+
+    Security Guarantees:
+    - Ensures cleanup can remove ONLY a temporary directory created and owned
+      by this patcher, never an arbitrary caller-supplied directory.
+    - Requires registration in _ACTIVE_SANDBOX_DIRS.
+    - Enforces confinement within the system temporary directory.
+    - Enforces prefix validation ('verifix_sandbox_').
+    """
     if not sandbox_dir:
         return False
-    path = Path(sandbox_dir).resolve()
-    if path.exists() and path.is_dir() and "verifix_sandbox_" in path.name:
+
+    try:
+        path = Path(sandbox_dir).resolve()
+    except (TypeError, ValueError):
+        return False
+
+    # Check 1: Must be explicitly created and tracked by this patcher
+    if path not in _ACTIVE_SANDBOX_DIRS:
+        return False
+
+    # Check 2: Defense-in-depth confinement to system temporary root
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    if not path.is_relative_to(temp_root) or not path.name.startswith("verifix_sandbox_"):
+        _ACTIVE_SANDBOX_DIRS.discard(path)
+        return False
+
+    if path.exists() and path.is_dir():
         shutil.rmtree(path, ignore_errors=True)
+        _ACTIVE_SANDBOX_DIRS.discard(path)
         return True
+
+    _ACTIVE_SANDBOX_DIRS.discard(path)
     return False
 
 
