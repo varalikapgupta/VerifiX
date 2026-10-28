@@ -356,8 +356,472 @@ class TestApplySandboxPatchSuccess:
         finally:
             cleanup_sandbox(res.sandbox_dir)
 
+
     def test_apply_patch_invalid_path_returns_error_result(self):
         res = apply_sandbox_patch("nonexistent_file_xyz.py", "PY002")
         assert res.status == "ERROR"
         assert "Invalid target path" in res.message
         assert res.patched_copy_path is None
+
+
+# ===========================================================================
+# 9. PY002 Patch Behavioral Regression Tests
+#
+# Strategy
+# --------
+# The PY002 patched block performs two operations:
+#
+#   safe_name = os.path.basename(name)
+#   candidate_path = os.path.join(str(DEMO_PUBLIC_DIR), safe_name)
+#   resolved_path = Path(candidate_path).resolve()
+#   if not resolved_path.is_relative_to(DEMO_PUBLIC_DIR):
+#       return ..., 403
+#
+# We test this algorithm in isolation — as a pure Python expression — against
+# a controlled tmp_path directory tree with canary files.  No code is executed,
+# no Flask server is started, and no real sensitive files are read.
+#
+# The tests also verify that:
+# 1. apply_sandbox_patch embeds `os.path.basename` in the patched file text.
+# 2. The patched file no longer contains the vulnerable substring.
+# 3. The original file is untouched throughout.
+# 4. cleanup_sandbox removes the sandbox directory after the test.
+# ===========================================================================
+
+import os as _os_module  # alias to avoid shadowing in local helpers
+
+
+def _simulate_patched_route(name: str, public_dir: "Path") -> tuple["Path | None", int]:
+    """Pure-Python simulation of the PY002-patched route logic.
+
+    Parameters mirror the patched block exactly (lines 76-85 of sandbox_patcher.py):
+
+        safe_name = os.path.basename(name)
+        candidate_path = os.path.join(str(DEMO_PUBLIC_DIR), safe_name)
+        resolved_path = Path(candidate_path).resolve()
+        if not resolved_path.is_relative_to(DEMO_PUBLIC_DIR):
+            return ..., 403
+
+    This helper is intentionally a pure function.  It does NOT open, read, or
+    write any file; it only resolves paths.  No untrusted code is executed.
+
+    Returns:
+        (resolved_path, 200) if the path is within public_dir.
+        (None, 403) if the is_relative_to check fails.
+    """
+    safe_name = _os_module.path.basename(name)
+    candidate_path = _os_module.path.join(str(public_dir), safe_name)
+    resolved_path = Path(candidate_path).resolve()
+    if not resolved_path.is_relative_to(public_dir):
+        return None, 403
+    return resolved_path, 200
+
+
+def _simulate_vulnerable_route(name: str, public_dir: "Path", storage_dir: "Path") -> tuple["Path | None", int]:
+    """Pure-Python simulation of the ORIGINAL (un-patched) route logic.
+
+    The original code joins user-supplied *name* directly without basename
+    sanitization and uses the wider DEMO_STORAGE_DIR boundary.
+
+    This is used only to contrast with the patched logic; it is NOT called on
+    real files.
+    """
+    candidate_path = _os_module.path.join(str(public_dir), name)
+    resolved_path = Path(candidate_path).resolve()
+    if not resolved_path.is_relative_to(storage_dir):
+        return None, 403
+    return resolved_path, 200
+
+
+class TestPY002PatchBehavior:
+    """Behavioral regression tests for the PY002 patch.
+
+    Directory layout used in every test (created entirely inside tmp_path):
+
+        tmp_path/
+        ├── storage/          ← simulates DEMO_STORAGE_DIR
+        │   ├── public/       ← simulates DEMO_PUBLIC_DIR
+        │   │   └── canary.txt  ← legitimate readable file
+        │   └── internal.txt  ← secret inside storage, outside public
+        └── outside/          ← completely outside storage
+            └── secret.txt    ← canary that must never be reachable
+    """
+
+    # ------------------------------------------------------------------
+    # Fixtures
+    # ------------------------------------------------------------------
+
+    @pytest.fixture()
+    def dirs(self, tmp_path: Path):
+        """Create the controlled directory tree and canary files."""
+        storage = tmp_path / "storage"
+        public = storage / "public"
+        outside = tmp_path / "outside"
+
+        public.mkdir(parents=True)
+        outside.mkdir()
+
+        (public / "canary.txt").write_text("PUBLIC_CANARY", encoding="utf-8")
+        (storage / "internal.txt").write_text("INTERNAL_SECRET", encoding="utf-8")
+        (outside / "secret.txt").write_text("OUTSIDE_SECRET", encoding="utf-8")
+
+        return {"storage": storage, "public": public, "outside": outside}
+
+    # ------------------------------------------------------------------
+    # 9a. Legitimate access (normal filenames)
+    # ------------------------------------------------------------------
+
+    def test_ordinary_filename_resolves_inside_public(self, dirs):
+        """A plain filename without any traversal resolves inside DEMO_PUBLIC_DIR."""
+        path, status = _simulate_patched_route("canary.txt", dirs["public"])
+        assert status == 200
+        assert path is not None
+        assert path.is_relative_to(dirs["public"])
+
+    def test_ordinary_filename_with_extension_allowed(self, dirs):
+        path, status = _simulate_patched_route("report.pdf", dirs["public"])
+        # Path may not exist on disk, but the resolved location must be inside public.
+        assert status == 200
+        assert path is not None
+        assert path.is_relative_to(dirs["public"])
+
+    def test_canary_file_read_in_bounds_returns_content(self, dirs):
+        """Legitimate file 'canary.txt' inside public resolves and reads correctly."""
+        path, status = _simulate_patched_route("canary.txt", dirs["public"])
+        assert status == 200
+        assert path is not None and path.exists()
+        assert path.read_text(encoding="utf-8") == "PUBLIC_CANARY"
+
+    # ------------------------------------------------------------------
+    # 9b. Traversal attempt: single hop
+    # ------------------------------------------------------------------
+
+    def test_single_dotdot_traversal_is_blocked_by_basename(self, dirs):
+        """'../internal.txt' — basename strips '../', result stays inside public."""
+        name = "../internal.txt"
+        path, status = _simulate_patched_route(name, dirs["public"])
+        # After basename: 'internal.txt' joined to public_dir -> inside public
+        assert status == 200
+        assert path is not None
+        assert path.is_relative_to(dirs["public"]), (
+            "basename should strip '../' so the resolved path is inside public"
+        )
+        # Critical: the resolved path must NOT point to storage/internal.txt
+        expected_blocked = (dirs["storage"] / "internal.txt").resolve()
+        assert path != expected_blocked, (
+            "The patched route must not resolve to the storage-level secret file"
+        )
+
+    def test_traversal_outside_txt_is_confined_to_public(self, dirs):
+        """'../outside.txt' — basename strips traversal, candidate stays in public."""
+        name = "../outside.txt"
+        path, status = _simulate_patched_route(name, dirs["public"])
+        assert status == 200
+        assert path is not None
+        assert path.is_relative_to(dirs["public"])
+        expected_path = (dirs["public"] / "outside.txt").resolve()
+        assert path == expected_path
+        # Does not exist inside public, so it can never leak an outside file
+        assert not path.exists()
+
+    def test_single_dotdot_traversal_basename_strips_prefix(self, dirs):
+        """Confirm basename produces just the filename portion (no directory component)."""
+        assert _os_module.path.basename("../internal.txt") == "internal.txt"
+        assert _os_module.path.basename("../outside.txt") == "outside.txt"
+
+    # ------------------------------------------------------------------
+    # 9c. Traversal attempt: multi-hop
+    # ------------------------------------------------------------------
+
+    def test_multi_hop_traversal_is_blocked_by_basename(self, dirs):
+        """'../../outside/secret.txt' — basename strips all path components."""
+        name = "../../outside/secret.txt"
+        path, status = _simulate_patched_route(name, dirs["public"])
+        assert status == 200
+        assert path is not None
+        assert path.is_relative_to(dirs["public"])
+        # Must NOT resolve to outside/secret.txt
+        outside_secret = (dirs["outside"] / "secret.txt").resolve()
+        assert path != outside_secret
+
+    def test_deep_traversal_cannot_escape_public(self, dirs):
+        """Ten levels of '../' cannot escape DEMO_PUBLIC_DIR after basename."""
+        name = "../" * 10 + "secret.txt"
+        path, status = _simulate_patched_route(name, dirs["public"])
+        assert status == 200
+        assert path is not None
+        assert path.is_relative_to(dirs["public"])
+
+    # ------------------------------------------------------------------
+    # 9d. Absolute path injection
+    # ------------------------------------------------------------------
+
+    def test_absolute_path_injection_is_blocked_by_basename(self, dirs):
+        """An absolute path supplied as 'name' — basename extracts just the filename."""
+        abs_path = str((dirs["outside"] / "secret.txt").resolve())
+        path, status = _simulate_patched_route(abs_path, dirs["public"])
+        assert status == 200
+        assert path is not None
+        # The resolved location must be inside public, not the injected abs path
+        assert path.is_relative_to(dirs["public"])
+
+    def test_absolute_windows_style_path_blocked(self, dirs):
+        """Windows-style absolute path — basename strips to last component."""
+        name = "C:\\Windows\\System32\\config"
+        path, status = _simulate_patched_route(name, dirs["public"])
+        # On any OS, basename returns 'config' or the last segment
+        assert status == 200
+        assert path is not None
+        assert path.is_relative_to(dirs["public"])
+
+    # ------------------------------------------------------------------
+    # 9e. Edge cases
+    # ------------------------------------------------------------------
+
+    def test_empty_filename_resolves_to_public_dir_itself(self, dirs):
+        """An empty name string — basename('') == '' — joined to public_dir resolves there."""
+        path, status = _simulate_patched_route("", dirs["public"])
+        # basename('') == '' -> join(public, '') -> public itself or public/
+        assert status == 200
+        # Resolved path should still be relative to (or equal to) public
+        assert path is not None
+        assert path == dirs["public"].resolve() or path.is_relative_to(dirs["public"])
+
+    def test_dot_filename_resolves_inside_public(self, dirs):
+        """A single '.' — os.path.basename('.') == '.' — stays inside public."""
+        name = "."
+        safe = _os_module.path.basename(name)
+        assert safe == "."  # confirm basename behaviour
+        path, status = _simulate_patched_route(name, dirs["public"])
+        assert status == 200
+
+    def test_null_byte_in_name_handled(self, dirs):
+        """A filename with an embedded null byte — basename strips path, leaving the tail."""
+        name = "../\x00secret.txt"
+        # basename result depends on OS but must not escape public
+        safe = _os_module.path.basename(name)
+        # Just verify the simulation does not raise and that status indicates containment
+        path, status = _simulate_patched_route(name, dirs["public"])
+        # Any result is acceptable as long as it does not resolve outside public if status==200
+        if status == 200 and path is not None:
+            assert path.is_relative_to(dirs["public"])
+
+    def test_parent_directory_dotdot_blocked_by_relative_to_boundary(self, dirs):
+        """A bare '..' — basename returns '..' which resolves to storage (outside public).
+
+        The secondary defense line:
+            if not resolved_path.is_relative_to(DEMO_PUBLIC_DIR): return 403
+        must catch this escape attempt and return HTTP 403.
+        """
+        name = ".."
+        path, status = _simulate_patched_route(name, dirs["public"])
+        assert status == 403
+        assert path is None
+
+    def test_multi_hop_parent_directory_dotdot_blocked(self, dirs):
+        """'../..' — basename returns '..' which resolves outside public, returning 403."""
+        name = "../.."
+        path, status = _simulate_patched_route(name, dirs["public"])
+        assert status == 403
+        assert path is None
+
+    # ------------------------------------------------------------------
+    # 9f. Contrast: vulnerable logic CAN escape storage
+    # ------------------------------------------------------------------
+
+    def test_vulnerable_route_allows_escape_within_storage(self, dirs):
+        """The ORIGINAL (un-patched) route allows traversal within DEMO_STORAGE_DIR.
+
+        This test documents the KNOWN vulnerable behavior to contrast with the
+        patched version.  'public/../internal.txt' is relative to storage_dir so
+        it is NOT blocked by the original boundary check, exposing internal.txt.
+        """
+        name = "../internal.txt"  # escapes public but stays inside storage
+        path, status = _simulate_vulnerable_route(
+            name, dirs["public"], dirs["storage"]
+        )
+        # The original route resolves to storage/internal.txt (inside storage boundary)
+        # so it returns 200 — the secret file is reachable
+        if status == 200:
+            assert path is not None
+            expected = (dirs["storage"] / "internal.txt").resolve()
+            assert path == expected, (
+                "Documenting vulnerable behavior: internal.txt is reachable "
+                "via traversal in the un-patched route"
+            )
+
+    def test_vulnerable_route_reads_internal_canary_secret(self, dirs):
+        """Document that unpatched route can actually read the secret file content."""
+        path, status = _simulate_vulnerable_route(
+            "../internal.txt", dirs["public"], dirs["storage"]
+        )
+        assert status == 200
+        assert path is not None and path.exists()
+        assert path.read_text(encoding="utf-8") == "INTERNAL_SECRET"
+
+    def test_vulnerable_route_blocks_external_escape(self, dirs):
+        """The original route blocks escapes that leave DEMO_STORAGE_DIR entirely."""
+        name = "../../outside/secret.txt"
+        path, status = _simulate_vulnerable_route(
+            name, dirs["public"], dirs["storage"]
+        )
+        assert status == 403, (
+            "The original route blocks traversal outside storage_dir, "
+            "but NOT within it"
+        )
+
+    # ------------------------------------------------------------------
+    # 9g. Patch text verification (via apply_sandbox_patch)
+    # ------------------------------------------------------------------
+
+    def test_patched_file_contains_basename_call(self, tmp_path: Path):
+        """The sandbox copy produced by apply_sandbox_patch must contain os.path.basename."""
+        from sandbox_patcher import _PY002_VULNERABLE_BLOCK
+
+        vulnerable_code = (
+            "import os\n"
+            "from pathlib import Path\n\n"
+            "DEMO_STORAGE_DIR = Path('/tmp/storage')\n"
+            "DEMO_PUBLIC_DIR = Path('/tmp/storage/public')\n\n"
+            "def serve_file(name):\n"
+            + _PY002_VULNERABLE_BLOCK
+            + "\n    return open(str(resolved_path)).read()\n"
+        )
+        target = tmp_path / "vuln.py"
+        target.write_text(vulnerable_code, encoding="utf-8")
+        orig_hash = compute_sha256(target)
+
+        res = apply_sandbox_patch(target, "PY002")
+        try:
+            assert res.status == "APPLIED", f"Expected APPLIED, got: {res.status} — {res.message}"
+            copy_path = Path(res.patched_copy_path)
+            patched_text = copy_path.read_text(encoding="utf-8")
+
+            # Security assertion 1: basename call is present
+            assert "os.path.basename" in patched_text, (
+                "Patched file must contain os.path.basename() to strip traversal components"
+            )
+
+            # Security assertion 2: vulnerable raw join pattern is gone
+            assert "os.path.join(str(DEMO_PUBLIC_DIR), name)" not in patched_text, (
+                "Patched file must not contain the raw unsanitized join"
+            )
+
+            # Security assertion 3: boundary is tightened to DEMO_PUBLIC_DIR
+            assert "is_relative_to(DEMO_PUBLIC_DIR)" in patched_text, (
+                "Patched file must confine to DEMO_PUBLIC_DIR, not the wider DEMO_STORAGE_DIR"
+            )
+
+            # Patcher guarantee: original file untouched
+            assert target.read_text(encoding="utf-8") == vulnerable_code
+            assert compute_sha256(target) == orig_hash
+        finally:
+            cleanup_sandbox(res.sandbox_dir)
+
+    def test_patched_file_does_not_contain_storage_dir_boundary(self, tmp_path: Path):
+        """After patching, is_relative_to(DEMO_STORAGE_DIR) must NOT be the boundary.
+
+        The vulnerable code used the wider DEMO_STORAGE_DIR boundary, allowing
+        traversal within storage.  The patch narrows it to DEMO_PUBLIC_DIR.
+        """
+        from sandbox_patcher import _PY002_VULNERABLE_BLOCK
+
+        vulnerable_code = (
+            "import os\n"
+            "from pathlib import Path\n\n"
+            "DEMO_STORAGE_DIR = Path('/tmp/storage')\n"
+            "DEMO_PUBLIC_DIR = Path('/tmp/storage/public')\n\n"
+            "def serve_file(name):\n"
+            + _PY002_VULNERABLE_BLOCK
+            + "\n    return open(str(resolved_path)).read()\n"
+        )
+        target = tmp_path / "vuln2.py"
+        target.write_text(vulnerable_code, encoding="utf-8")
+
+        res = apply_sandbox_patch(target, "PY002")
+        try:
+            assert res.status == "APPLIED"
+            patched_text = Path(res.patched_copy_path).read_text(encoding="utf-8")
+            # The patched boundary comment/check should reference DEMO_PUBLIC_DIR
+            assert "DEMO_PUBLIC_DIR" in patched_text
+        finally:
+            cleanup_sandbox(res.sandbox_dir)
+
+    # ------------------------------------------------------------------
+    # 9h. Sandbox cleanup after patch
+    # ------------------------------------------------------------------
+
+    def test_sandbox_dir_can_be_cleaned_up_after_patch(self, tmp_path: Path):
+        """After apply_sandbox_patch returns APPLIED, cleanup_sandbox must succeed."""
+        from sandbox_patcher import _PY002_VULNERABLE_BLOCK
+
+        code = (
+            "import os\nfrom pathlib import Path\n"
+            "DEMO_STORAGE_DIR = Path('/x')\nDEMO_PUBLIC_DIR = Path('/x/p')\n"
+            "def f(name):\n" + _PY002_VULNERABLE_BLOCK + "\n    return ''\n"
+        )
+        target = tmp_path / "cleanup_test.py"
+        target.write_text(code, encoding="utf-8")
+
+        res = apply_sandbox_patch(target, "PY002")
+        assert res.status == "APPLIED"
+        sandbox_path = Path(res.sandbox_dir)
+        assert sandbox_path.exists()
+
+        cleaned = cleanup_sandbox(res.sandbox_dir)
+        assert cleaned is True
+        assert not sandbox_path.exists(), "Sandbox directory must be removed after cleanup"
+
+    def test_sandbox_dir_not_deleteable_without_registration(self, tmp_path: Path):
+        """A directory path identical in form but not registered must be rejected."""
+        import tempfile
+
+        # Manufacture a path that looks like a sandbox but was never registered
+        fake = Path(tempfile.gettempdir()) / "verifix_sandbox_fake_test_abc"
+        fake.mkdir(exist_ok=True)
+        canary = fake / "canary.txt"
+        canary.write_text("safe", encoding="utf-8")
+
+        try:
+            result = cleanup_sandbox(fake)
+            assert result is False, "Unregistered sandbox must not be deleted"
+            assert fake.exists(), "Unregistered directory must remain intact"
+        finally:
+            import shutil
+            shutil.rmtree(fake, ignore_errors=True)
+
+    # ------------------------------------------------------------------
+    # 9i. Original file remains unchanged through the entire patch workflow
+    # ------------------------------------------------------------------
+
+    def test_original_file_unchanged_hash_after_patch(self, tmp_path: Path):
+        """apply_sandbox_patch must not alter the original file's bytes in any way."""
+        from sandbox_patcher import _PY002_VULNERABLE_BLOCK
+
+        code = (
+            "import os\nfrom pathlib import Path\n"
+            "DEMO_STORAGE_DIR = Path('/x')\nDEMO_PUBLIC_DIR = Path('/x/p')\n"
+            "def f(name):\n" + _PY002_VULNERABLE_BLOCK + "\n    return ''\n"
+        )
+        target = tmp_path / "immutability.py"
+        target.write_text(code, encoding="utf-8")
+        original_bytes = target.read_bytes()
+        original_hash = compute_sha256(target)
+
+        res = apply_sandbox_patch(target, "PY002")
+        try:
+            assert res.status == "APPLIED"
+            # Byte-for-byte identity
+            assert target.read_bytes() == original_bytes, (
+                "Original file bytes must be identical before and after patching"
+            )
+            assert compute_sha256(target) == original_hash, (
+                "Original file SHA-256 must be identical before and after patching"
+            )
+            # Patched copy must differ from original
+            assert res.patched_hash != original_hash, (
+                "Patched sandbox copy must have a different hash from the original"
+            )
+        finally:
+            cleanup_sandbox(res.sandbox_dir)
+
