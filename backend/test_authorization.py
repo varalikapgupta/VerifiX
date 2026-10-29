@@ -1,7 +1,7 @@
 
 import requests
 
-BASE_URL = "http://127.0.0.1:5001"
+BASE_URL = "http://127.0.0.1:5002"
 
 
 def test_cross_user_access():
@@ -33,3 +33,4 @@ def test_cross_user_access():
 
 if __name__ == "__main__":
     test_cross_user_access()
+

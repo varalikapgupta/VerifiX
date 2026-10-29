@@ -28,7 +28,15 @@ def client():
 
 
 # ===========================================================================
-# 1. Preserved BOLA endpoint: GET /documents/<document_id>
+# 1. Preserved BOLA endpoint: GET /documents/<document_id>  
+# Python for the security engine.
+#AST for source-code analysis.
+#Flask for the local vulnerable demo application.
+#FastAPI for the scanner API.
+#Pytest for automated testing.
+#Bandit for comparison with an existing security scanner.
+#Git and GitHub for version control.
+#Claude-based reasoning is planned in Milestone 3.
 # ===========================================================================
 
 class TestDocumentsEndpoint:

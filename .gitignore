@@ -4,3 +4,7 @@ __pycache__/
 backend/.venv/
 .env
 .pytest_cache/
+
+# Local runtime logs
+backend/audit_log.jsonl
+backend_debug.log

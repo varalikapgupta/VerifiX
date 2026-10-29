@@ -1,28 +1,13 @@
 """
-backend/main.py
-===============
 VerifiX FastAPI backend.
 
 Endpoints
 ---------
-GET  /            — project identity
-GET  /health      — liveness probe
-POST /scan        — scan vulnerable_app.py (preserved, unchanged behavior)
-POST /analyze     — structured scan workflow: accepts source code, runs static
-                    analysis, enriches findings with offline reasoning, logs
-                    the scan event via the audit logger, and returns evidence-
-                    backed results with approved probe recommendations.
-
-Security notes
---------------
-- Source code submitted to /analyze is treated as untrusted input.
-- It is parsed by the AST scanner only; it is NEVER executed.
-- Filesystem paths, stack traces, and internal exception details are never
-  returned to the caller.
-- Probe recommendations are restricted to the existing allow-list in
-  claude_reasoning.REGISTERED_PROBE_IDS.  No probe is executed automatically.
-- Audit events log finding counts and rule IDs only; source code and secrets
-  are never stored in the audit log.
+GET  /       Project identity
+GET  /health Liveness probe
+POST /scan   Scan vulnerable_app.py
+POST /analyze Analyze submitted Python source without executing it
+POST /patch  Apply an approved patch to a temporary sandbox copy
 """
 
 from __future__ import annotations
@@ -33,17 +18,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-# ---------------------------------------------------------------------------
-# Bare-name imports mirror the existing convention used across the project's
-# test suite (e.g. test_scanner.py inserts backend/ into sys.path and then
-# does `from static_scanner import ...`).  When FastAPI/uvicorn is launched
-# from the repository root via `uvicorn backend.main:app` the path insertion
-# below keeps imports working in both cases.
-# ---------------------------------------------------------------------------
+# Preserve the existing backend import convention.
 _BACKEND_DIR = Path(__file__).resolve().parent
+
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
@@ -59,39 +40,45 @@ app = FastAPI(
     version="0.3.0",
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 BASE_DIR = _BACKEND_DIR
 TARGET_FILE = BASE_DIR / "vulnerable_app.py"
 
-# One audit-logger instance, shared across requests (thread-safe per-path lock).
 _AUDIT_LOG_PATH = BASE_DIR / "audit_log.jsonl"
 _audit_logger = AuditLogger(_AUDIT_LOG_PATH)
 
-# Maximum accepted source length (bytes) to prevent trivially large payloads.
-_MAX_SOURCE_BYTES = 512 * 1024  # 512 KB
+_MAX_SOURCE_BYTES = 512 * 1024
 
 
 # ---------------------------------------------------------------------------
-# Request / response models
+# Request and response models
 # ---------------------------------------------------------------------------
 
 class AnalyzeRequest(BaseModel):
-    """Source code submitted for analysis."""
+    """Source submitted for static analysis."""
 
     source: str = Field(
         ...,
-        description="Python source code to analyze (untrusted, never executed).",
+        description="Python source code to analyze; it is never executed.",
         min_length=1,
         max_length=_MAX_SOURCE_BYTES,
     )
     filename: str = Field(
         default="<submitted>",
-        description="Optional display name for the source (used in error messages only).",
+        description="Display name for the submitted source.",
         max_length=256,
     )
 
 
 class EnrichedFinding(BaseModel):
-    """A single scanner finding enriched with reasoning and probe recommendations."""
+    """A scanner finding enriched with reasoning and probe recommendations."""
 
     rule: str
     type: str
@@ -105,15 +92,21 @@ class EnrichedFinding(BaseModel):
 
 
 class AnalyzeResponse(BaseModel):
-    """Structured response from the /analyze endpoint."""
+    """Structured response from /analyze."""
 
     finding_count: int
     findings: list[EnrichedFinding]
     disclaimer: str
 
 
+class PatchRequest(BaseModel):
+    """Request for an approved sandbox patch."""
+
+    rule: str = Field(default="PY002", min_length=1, max_length=32)
+
+
 # ---------------------------------------------------------------------------
-# Existing endpoints — unchanged behavior
+# Existing endpoints
 # ---------------------------------------------------------------------------
 
 @app.get("/")
@@ -132,6 +125,7 @@ def health() -> dict[str, str]:
 
 @app.post("/scan")
 def run_scan() -> dict[str, Any]:
+    """Scan the predefined backend target file."""
     try:
         findings = scan_file(TARGET_FILE)
         return {
@@ -140,53 +134,54 @@ def run_scan() -> dict[str, Any]:
             "findings": findings,
         }
     except (OSError, SyntaxError) as exc:
+        logger.exception("Target file scan failed")
         raise HTTPException(
             status_code=500,
-            detail=f"Scan failed: {exc}",
+            detail="Scan failed due to a file or syntax error.",
         ) from exc
 
 
 # ---------------------------------------------------------------------------
-# New /analyze endpoint
+# Structured static analysis
 # ---------------------------------------------------------------------------
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze_source(body: AnalyzeRequest) -> AnalyzeResponse:
-    """Structured scan workflow.
-
-    1. Parse the submitted source with the AST scanner (never executed).
-    2. Enrich each finding with offline vulnerability reasoning.
-    3. Return evidence-backed results with allow-listed probe recommendations.
-    4. Log the scan event (finding count + rule IDs only, no source contents).
-
-    Returns HTTP 422 for validation errors (empty source, oversized payload).
-    Returns HTTP 400 for Python syntax errors in the submitted source.
-    Returns HTTP 500 only for unexpected internal errors, with a generic message.
     """
-    # 1. Static analysis — treat source as untrusted; never execute it.
+    Parse untrusted source with the AST scanner, enrich findings using offline
+    reasoning, and record a minimal audit event. Submitted code is never run.
+    """
     try:
         raw_findings: list[dict[str, Any]] = scan_source(
             body.source,
             filename=body.filename,
         )
     except SyntaxError as exc:
-        # Surface a safe, non-path-revealing message.
         raise HTTPException(
             status_code=400,
-            detail=f"Submitted source contains a Python syntax error at line {exc.lineno}.",
+            detail=(
+                "Submitted source contains a Python syntax error "
+                f"at line {exc.lineno}."
+            ),
         ) from exc
-    except Exception:
-        # Log internally but never leak stack trace to caller.
+    except Exception as exc:
         logger.exception("Unexpected error during static analysis")
         raise HTTPException(
             status_code=500,
             detail="Static analysis failed due to an internal error.",
-        )
+        ) from exc
 
-    # 2. Offline reasoning — enrich each finding with hypothesis + probes.
-    hypotheses = generate_hypotheses_for_findings(raw_findings)
+    try:
+        hypotheses = generate_hypotheses_for_findings(raw_findings)
+    except Exception as exc:
+        logger.exception("Offline vulnerability reasoning failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Vulnerability reasoning failed due to an internal error.",
+        ) from exc
 
     enriched: list[EnrichedFinding] = []
+
     for finding, hypothesis in zip(raw_findings, hypotheses):
         enriched.append(
             EnrichedFinding(
@@ -198,12 +193,20 @@ def analyze_source(body: AnalyzeRequest) -> AnalyzeResponse:
                 hypothesis=hypothesis.hypothesis,
                 confidence=hypothesis.confidence,
                 reasoning=hypothesis.reasoning,
-                recommended_probes=list(hypothesis.selected_probe_ids),
+                recommended_probes=list(
+                    hypothesis.selected_probe_ids
+                ),
             )
         )
 
-    # 3. Audit logging — record only finding counts and rule IDs; never source.
-    rule_ids = sorted({f.get("rule", "") for f in raw_findings if f.get("rule")})
+    rule_ids = sorted(
+        {
+            finding.get("rule", "")
+            for finding in raw_findings
+            if finding.get("rule")
+        }
+    )
+
     try:
         _audit_logger.append_event(
             "scan",
@@ -213,8 +216,9 @@ def analyze_source(body: AnalyzeRequest) -> AnalyzeResponse:
             },
         )
     except Exception:
-        # Audit failures must not fail the scan response.
-        logger.warning("Audit logging failed; scan result will still be returned.")
+        logger.warning(
+            "Audit logging failed; scan result will still be returned."
+        )
 
     return AnalyzeResponse(
         finding_count=len(enriched),
@@ -228,14 +232,69 @@ def analyze_source(body: AnalyzeRequest) -> AnalyzeResponse:
 
 
 # ---------------------------------------------------------------------------
-# Generic safety net — catch unhandled exceptions and return 500 without
-# leaking any internal detail.
+# Approved sandbox patch endpoint
 # ---------------------------------------------------------------------------
 
-@app.exception_handler(Exception)
-async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "An unexpected internal error occurred."},
-    )
+@app.post("/patch")
+def apply_patch_endpoint(body: PatchRequest) -> dict[str, Any]:
+    """Apply an approved patch to a temporary sandbox copy."""
+
+    if body.rule != "PY002":
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported patch rule. Only PY002 is supported.",
+        )
+
+    try:
+        from sandbox_patcher import apply_sandbox_patch
+
+        result = apply_sandbox_patch(str(TARGET_FILE), body.rule)
+
+        if result.status != "APPLIED":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Patch could not be applied. "
+                    "Check the target pattern and patch result."
+                ),
+            )
+
+        if not result.syntax_valid:
+            raise HTTPException(
+                status_code=400,
+                detail="The patched sandbox copy did not pass syntax validation.",
+            )
+
+        try:
+            _audit_logger.append_event(
+                "sandbox_patch",
+                {
+                    "rule": body.rule,
+                    "status": result.status,
+                    "original_hash": result.original_hash,
+                    "patched_hash": result.patched_hash,
+                },
+            )
+        except Exception:
+            logger.warning("Audit logging failed for sandbox patch.")
+
+        return {
+            "status": result.status,
+            "message": result.message,
+            "rule": body.rule,
+            "original_hash": result.original_hash,
+            "patched_hash": result.patched_hash,
+            "syntax_valid": result.syntax_valid,
+            "sandbox_path": result.sandbox_path,
+            "original_modified": False,
+            "verification": "Pending runtime probe and regression tests",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Sandbox patch operation failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Sandbox patch operation failed: {exc}",
+        ) from exc
