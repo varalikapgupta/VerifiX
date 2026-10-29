@@ -8,3 +8,13 @@ backend/.venv/
 # Local runtime logs
 backend/audit_log.jsonl
 backend_debug.log
+
+# Generated files and local logs
+backend/audit_log.jsonl
+backend_debug.log
+backend_debug.log.*
+.pytest_cache/
+**/__pycache__/
+frontend/node_modules/
+frontend/dist/
+backend/.venv/
