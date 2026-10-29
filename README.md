@@ -1,5 +1,5 @@
-# VerifiX
-# VerifiX 🛡️
+
+# VerifiX 
 ### Detect. Understand. Patch Safely. Verify.
 
 **VerifiX** is a developer-focused application security prototype designed to connect static vulnerability detection, contextual security analysis, controlled sandbox remediation, runtime testing, and audit logging in one workflow.
