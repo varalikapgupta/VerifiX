@@ -111,6 +111,10 @@ class PatchResult:
     def patched_sha256(self) -> str | None:
         return self.patched_hash
 
+    @property
+    def sandbox_path(self) -> str | None:
+        return self.patched_copy_path
+
     def to_dict(self) -> dict[str, Any]:
         """Convert PatchResult to a plain serializable dictionary."""
         return {

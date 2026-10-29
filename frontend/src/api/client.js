@@ -165,3 +165,57 @@ export async function applySandboxPatch(rule = 'PY002') {
     throw new ApiError(`Failed to reach patch endpoint: ${err.message}`, 0);
   }
 }
+
+/**
+ * Execute end-to-end runtime security verification via POST /verify
+ */
+export async function runVerification() {
+  try {
+    const res = await apiFetch('/verify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      const errorMsg = data?.detail || `Verification failed with status ${res.status}`;
+      throw new ApiError(
+        typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg),
+        res.status,
+        data
+      );
+    }
+
+    return data;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(`Failed to reach verification endpoint: ${err.message}`, 0);
+  }
+}
+
+/**
+ * Fetch verified audit trail and hash-chain integrity via GET /audit
+ */
+export async function fetchAuditTrail() {
+  try {
+    const res = await apiFetch('/audit');
+    const data = await res.json();
+
+    if (!res.ok) {
+      const errorMsg = data?.detail || `Audit query failed with status ${res.status}`;
+      throw new ApiError(
+        typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg),
+        res.status,
+        data
+      );
+    }
+
+    return data;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(`Failed to reach audit endpoint: ${err.message}`, 0);
+  }
+}

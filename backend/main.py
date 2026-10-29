@@ -254,8 +254,8 @@ def apply_patch_endpoint(body: PatchRequest) -> dict[str, Any]:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Patch could not be applied. "
-                    "Check the target pattern and patch result."
+                    result.message
+                    or "Patch could not be applied. Check the target pattern and patch result."
                 ),
             )
 
@@ -285,16 +285,63 @@ def apply_patch_endpoint(body: PatchRequest) -> dict[str, Any]:
             "original_hash": result.original_hash,
             "patched_hash": result.patched_hash,
             "syntax_valid": result.syntax_valid,
-            "sandbox_path": result.sandbox_path,
+            "sandbox_path": result.patched_copy_path,
             "original_modified": False,
             "verification": "Pending runtime probe and regression tests",
         }
 
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         logger.exception("Sandbox patch operation failed")
         raise HTTPException(
             status_code=500,
-            detail=f"Sandbox patch operation failed: {exc}",
-        ) from exc
+            detail="Sandbox patch operation failed due to an internal error.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Verification & Audit Ledger endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/verify")
+def run_verification_endpoint() -> dict[str, Any]:
+    """Execute end-to-end verification workflow against target application."""
+    try:
+        from verify_workflow import run_full_verification
+        report = run_full_verification(TARGET_FILE)
+        return report
+    except Exception:
+        logger.exception("Verification flow failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Verification workflow failed due to an internal error.",
+        )
+
+
+@app.get("/audit")
+def get_audit_trail() -> dict[str, Any]:
+    """Return verifiable audit log records and chain integrity status."""
+    import json
+    from audit_logger import verify_audit_log
+
+    records = []
+    if _AUDIT_LOG_PATH.is_file():
+        try:
+            with _AUDIT_LOG_PATH.open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        records.append(json.loads(line))
+        except Exception:
+            logger.warning("Failed to parse audit log lines")
+
+    integrity = verify_audit_log(_AUDIT_LOG_PATH)
+    return {
+        "valid": integrity.valid,
+        "records_checked": integrity.records_checked,
+        "error_message": integrity.error_message,
+        "failing_index": integrity.failing_index,
+        "total_records": len(records),
+        "records": records[-30:],
+    }
